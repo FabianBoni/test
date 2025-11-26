@@ -17,7 +17,7 @@ class RangeDecision:
 class VolatilityAwareStrategy:
     """Translates volatility forecasts into Uniswap V3 tick ranges."""
 
-    def __init__(self, tight_width: float = 0.005, base_width: float = 0.01, wide_width: float = 0.02) -> None:
+    def __init__(self, tight_width: float = 0.001, base_width: float = 0.005, wide_width: float = 0.01) -> None:
         self._tight = tight_width
         self._base = base_width
         self._wide = wide_width

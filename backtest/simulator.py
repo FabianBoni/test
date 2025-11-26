@@ -91,7 +91,11 @@ class Simulator:
 
     def __init__(self, config: BacktestConfig, pool_tvl_usd: float | None = None) -> None:
         self._config = config
-        self._strategy = VolatilityAwareStrategy()
+        self._strategy = VolatilityAwareStrategy(
+            tight_width=self._config.tight_width,
+            base_width=self._config.base_width,
+            wide_width=self._config.wide_width,
+        )
         self._forecaster = GarchForecaster()
         self._pool_tvl_usd = max(pool_tvl_usd or 0.0, 1e3)  # avoid divide-by-zero
 

@@ -36,6 +36,9 @@ class BacktestConfig(BaseModel):
     reports_dir: Path = Field(default=Path("reports"))
     gas_cost_usd: float = Field(default=0.03, ge=0.0)
     fee_threshold_multiple: float = Field(default=1.2, ge=1.0)
+    tight_width: float = Field(default=0.001, gt=0.0, lt=1.0)
+    base_width: float = Field(default=0.005, gt=0.0, lt=1.0)
+    wide_width: float = Field(default=0.01, gt=0.0, lt=1.0)
 
     @validator("end")
     def _validate_window(cls, v: datetime, values: dict[str, datetime]) -> datetime:  # noqa: D401
@@ -44,6 +47,20 @@ class BacktestConfig(BaseModel):
         start = values.get("start")
         if start and v <= start:
             raise ValueError("end must be greater than start")
+        return v
+
+    @validator("base_width")
+    def _validate_base_width(cls, v: float, values: dict[str, float]) -> float:
+        tight = values.get("tight_width")
+        if tight is not None and v <= tight:
+            raise ValueError("base_width must be greater than tight_width")
+        return v
+
+    @validator("wide_width")
+    def _validate_wide_width(cls, v: float, values: dict[str, float]) -> float:
+        base = values.get("base_width")
+        if base is not None and v <= base:
+            raise ValueError("wide_width must be greater than base_width")
         return v
 
     @property
