@@ -30,6 +30,7 @@ def _config_overrides(
     fee_threshold_multiple: float | None,
     initial_width: float | None,
     starting_notional_usd: float | None,
+    gas_cost_usd: float | None,
 ) -> dict[str, float]:
     overrides: dict[str, float] = {}
     if tight_width is not None:
@@ -44,6 +45,8 @@ def _config_overrides(
         overrides["initial_width"] = initial_width
     if starting_notional_usd is not None:
         overrides["starting_notional_usd"] = starting_notional_usd
+    if gas_cost_usd is not None:
+        overrides["gas_cost_usd"] = gas_cost_usd
     return overrides
 
 
@@ -125,6 +128,7 @@ def run(
     starting_notional_usd: Optional[float] = typer.Option(
         None, help="Override starting notional (USD)"
     ),
+    gas_cost_usd: Optional[float] = typer.Option(None, help="Override per-compound gas cost (USD)"),
 ) -> None:
     overrides = _config_overrides(
         tight_width,
@@ -133,6 +137,7 @@ def run(
         fee_threshold_multiple,
         initial_width,
         starting_notional_usd,
+        gas_cost_usd,
     )
     config = BacktestConfig(start=start, end=end, pool_address=pool, rebalance_interval_minutes=interval, **overrides)
     config.ensure_directories()

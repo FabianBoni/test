@@ -1,0 +1,24 @@
+{
+  "objective_metric": "daily_return",
+  "best_value": -0.04667966075871391,
+  "raw_metric_value": 0.0005533898735476826,
+  "params": {
+    "rebalance_interval_minutes": 5,
+    "tight_width": 0.0289575589427696,
+    "base_width": 0.05120264448543709,
+    "wide_width": 0.05850541391998916,
+    "initial_width": 0.03920976672625302,
+    "fee_threshold_multiple": 1.4614566104000983,
+    "gas_cost_usd": 2.4779884459953926e-05
+  },
+  "metrics": {
+    "final_equity": 385.01078914293726,
+    "total_fees": 35.010789142939494,
+    "daily_return": 0.0005533898735476826,
+    "cagr": 0.47525746138642555,
+    "sharpe": 6.751962380712608,
+    "max_drawdown": 0.0,
+    "avg_period_return": 3.699144661019399e-06,
+    "final_il": 0.19691733750739138
+  }
+}

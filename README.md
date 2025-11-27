@@ -10,7 +10,7 @@ Python toolkit to evaluate a concentrated liquidity auto-compounding strategy ("
 	```
 - Override strategy knobs directly from CLI, e.g. concentrate liquidity and redeploy aggressively:
 	```bash
-	python cli.py run --start ... --end ... --pool ... --tight-width 0.002 --base-width 0.004 --wide-width 0.006 --initial-width 0.005 --fee-threshold-multiple 1.05
+	python cli.py run --start ... --end ... --pool ... --tight-width 0.002 --base-width 0.004 --wide-width 0.006 --initial-width 0.005 --fee-threshold-multiple 1.05 --gas-cost-usd 0.01
 	```
 - Launch Bayesian optimization of the range widths and compounding threshold (set `--trials` as needed):
 	```bash
