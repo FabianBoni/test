@@ -13,7 +13,7 @@ import typer
 from dotenv import load_dotenv
 from optuna.trial import TrialState
 
-from backtest import BacktestConfig, BacktestResult, Simulator
+from backtest import DEFAULT_POOL, BacktestConfig, BacktestResult, Simulator
 from backtest.data_loader import PoolInfoLoader, SwapLoader
 from backtest.feature_engineering import Bar, build_time_bars, load_cached_bars, save_bars
 from backtest.metrics import cagr, daily_return, max_drawdown, sharpe_ratio
@@ -115,7 +115,7 @@ def _score_metric(metric_name: str, value: float, target_low: float | None, targ
 def run(
     start: datetime = typer.Option(..., help="UTC start timestamp"),
     end: datetime = typer.Option(..., help="UTC end timestamp"),
-    pool: str = typer.Option(..., help="Pool address"),
+    pool: Optional[str] = typer.Option(None, help="Pool address (defaults to BACKTEST_POOL_ADDRESS/.env)"),
     interval: int = typer.Option(15, help="Bar interval in minutes"),
     refresh_data: bool = typer.Option(False, help="Force refetch graph data and rebuild bars"),
     tight_width: Optional[float] = typer.Option(None, help="Override tight width (fractional)"),
@@ -139,7 +139,8 @@ def run(
         starting_notional_usd,
         gas_cost_usd,
     )
-    config = BacktestConfig(start=start, end=end, pool_address=pool, rebalance_interval_minutes=interval, **overrides)
+    pool_address = (pool or DEFAULT_POOL)
+    config = BacktestConfig(start=start, end=end, pool_address=pool_address, rebalance_interval_minutes=interval, **overrides)
     config.ensure_directories()
 
     bars = _load_or_build_bars(config, interval, refresh_data)
@@ -156,7 +157,7 @@ def run(
     metrics = _compute_metrics(result, interval)
 
     report = {
-        "pool": pool,
+        "pool": config.pool_address,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "interval_minutes": interval,
@@ -180,7 +181,7 @@ def run(
 def optimize(
     start: datetime = typer.Option(..., help="UTC start timestamp"),
     end: datetime = typer.Option(..., help="UTC end timestamp"),
-    pool: str = typer.Option(..., help="Pool address"),
+    pool: Optional[str] = typer.Option(None, help="Pool address (defaults to BACKTEST_POOL_ADDRESS/.env)"),
     interval: int = typer.Option(15, help="Bar interval in minutes"),
     trials: int = typer.Option(25, min=1, help="Number of Optuna trials to run"),
     metric: str = typer.Option("total_fees", help="Metric to maximize"),
@@ -204,7 +205,8 @@ def optimize(
     if metric not in valid_metrics:
         raise typer.BadParameter(f"metric must be one of: {', '.join(sorted(valid_metrics))}")
 
-    config = BacktestConfig(start=start, end=end, pool_address=pool, rebalance_interval_minutes=interval)
+    pool_address = (pool or DEFAULT_POOL)
+    config = BacktestConfig(start=start, end=end, pool_address=pool_address, rebalance_interval_minutes=interval)
     config.ensure_directories()
     interval_candidates = list(interval_options) if interval_options else []
     interval_candidates.append(interval)

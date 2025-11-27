@@ -4,6 +4,14 @@ Python toolkit to evaluate a concentrated liquidity auto-compounding strategy ("
 
 ## CLI usage
 
+Set global defaults in `.env` (loaded automatically):
+
+```
+BACKTEST_POOL_ADDRESS=0xc31e54c7a869b9fcbecc14363cf510d1c41fa443
+```
+
+Then `--pool` becomes optional on all commands.
+
 - Run a single simulation (cached data is reused unless `--refresh-data` is provided):
 	```bash
 	python cli.py run --start 2025-08-28T00:00:00 --end 2025-11-26T00:00:00 --pool 0xc31e54c7a869b9fcbecc14363cf510d1c41fa443

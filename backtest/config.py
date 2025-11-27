@@ -9,7 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, validator
 
 
-DEFAULT_POOL = "0xc31e54c7a869b9fcbecc14363cf510d1c41fa443"  # Uniswap V3 WETH/USDC 0.05% on Arbitrum
+_ENV_POOL = os.environ.get("BACKTEST_POOL_ADDRESS")
+DEFAULT_POOL = (_ENV_POOL.strip() if _ENV_POOL else "0xc31e54c7a869b9fcbecc14363cf510d1c41fa443")
 DEFAULT_FEE_TIER = 500  # in bps * 100
 DEFAULT_GRAPH_ENDPOINT = "https://api.thegraph.com/subgraphs/name/ianlapham/uniswap-v3-arbitrum"
 
