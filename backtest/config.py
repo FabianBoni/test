@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -39,7 +38,8 @@ class BacktestConfig(BaseModel):
     tight_width: float = Field(default=0.001, gt=0.0, lt=1.0)
     base_width: float = Field(default=0.005, gt=0.0, lt=1.0)
     wide_width: float = Field(default=0.01, gt=0.0, lt=1.0)
-
+    initial_width: float = Field(default=0.01, gt=0.0, lt=1.0)
+    starting_notional_usd: float = Field(default=350.0, gt=0.0)
     @validator("end")
     def _validate_window(cls, v: datetime, values: dict[str, datetime]) -> datetime:  # noqa: D401
         """Ensure end is after start."""
@@ -61,6 +61,13 @@ class BacktestConfig(BaseModel):
         base = values.get("base_width")
         if base is not None and v <= base:
             raise ValueError("wide_width must be greater than base_width")
+        return v
+
+    @validator("initial_width")
+    def _validate_initial_width(cls, v: float, values: dict[str, float]) -> float:
+        wide = values.get("wide_width")
+        if wide is not None and v > wide * 1.5:
+            raise ValueError("initial_width cannot exceed 150% of wide_width")
         return v
 
     @property

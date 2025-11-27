@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from statistics import fmean
-from typing import Optional
+from typing import List, Optional
 
 import optuna
 import typer
@@ -28,6 +28,8 @@ def _config_overrides(
     base_width: float | None,
     wide_width: float | None,
     fee_threshold_multiple: float | None,
+    initial_width: float | None,
+    starting_notional_usd: float | None,
 ) -> dict[str, float]:
     overrides: dict[str, float] = {}
     if tight_width is not None:
@@ -38,6 +40,10 @@ def _config_overrides(
         overrides["wide_width"] = wide_width
     if fee_threshold_multiple is not None:
         overrides["fee_threshold_multiple"] = fee_threshold_multiple
+    if initial_width is not None:
+        overrides["initial_width"] = initial_width
+    if starting_notional_usd is not None:
+        overrides["starting_notional_usd"] = starting_notional_usd
     return overrides
 
 
@@ -86,6 +92,22 @@ def _compute_metrics(result: BacktestResult, interval: int) -> dict[str, float]:
     }
 
 
+def _score_metric(metric_name: str, value: float, target_low: float | None, target_high: float | None) -> float:
+    if metric_name != "daily_return" or target_low is None or target_high is None:
+        return value
+    if target_low >= target_high:
+        return value
+    penalty_low = 5.0
+    penalty_high = 2.0
+    if value < target_low:
+        return value - (target_low - value) * penalty_low
+    if value > target_high:
+        return value - (value - target_high) * penalty_high
+    # Inside the band boost values closer to the high end.
+    center = (target_low + target_high) / 2
+    return value + (value - center)
+
+
 @app.command()
 def run(
     start: datetime = typer.Option(..., help="UTC start timestamp"),
@@ -99,8 +121,19 @@ def run(
     fee_threshold_multiple: Optional[float] = typer.Option(
         None, help="Override compounding threshold multiplier"
     ),
+    initial_width: Optional[float] = typer.Option(None, help="Override initial deployment width"),
+    starting_notional_usd: Optional[float] = typer.Option(
+        None, help="Override starting notional (USD)"
+    ),
 ) -> None:
-    overrides = _config_overrides(tight_width, base_width, wide_width, fee_threshold_multiple)
+    overrides = _config_overrides(
+        tight_width,
+        base_width,
+        wide_width,
+        fee_threshold_multiple,
+        initial_width,
+        starting_notional_usd,
+    )
     config = BacktestConfig(start=start, end=end, pool_address=pool, rebalance_interval_minutes=interval, **overrides)
     config.ensure_directories()
 
@@ -148,6 +181,11 @@ def optimize(
     metric: str = typer.Option("total_fees", help="Metric to maximize"),
     refresh_data: bool = typer.Option(False, help="Force refetch graph data and rebuild bars"),
     seed: Optional[int] = typer.Option(None, help="Random seed for sampler reproducibility"),
+    interval_options: Optional[List[int]] = typer.Option(
+        None, help="Additional bar intervals (minutes) to consider; repeat flag for each value"
+    ),
+    target_daily_return_min: float = typer.Option(0.01, help="Lower target for daily return (fraction)"),
+    target_daily_return_max: float = typer.Option(0.02, help="Upper target for daily return (fraction)"),
 ) -> None:
     metric = metric.strip()
     valid_metrics = {
@@ -163,48 +201,96 @@ def optimize(
 
     config = BacktestConfig(start=start, end=end, pool_address=pool, rebalance_interval_minutes=interval)
     config.ensure_directories()
+    interval_candidates = list(interval_options) if interval_options else []
+    interval_candidates.append(interval)
+    if not interval_options:
+        interval_candidates.extend([5, 10, 15, 30])
+    interval_candidates = sorted({max(1, min(240, value)) for value in interval_candidates})
 
-    bars = _load_or_build_bars(config, interval, refresh_data)
+    bars_cache: dict[int, list[Bar]] = {}
+    config_cache: dict[int, BacktestConfig] = {}
+
+    def _get_config(interval_choice: int) -> BacktestConfig:
+        cached = config_cache.get(interval_choice)
+        if cached is None:
+            cached = config.model_copy(update={"rebalance_interval_minutes": interval_choice})
+            config_cache[interval_choice] = cached
+        return cached
+
+    def _get_bars(interval_choice: int) -> list[Bar]:
+        if interval_choice not in bars_cache:
+            cfg = _get_config(interval_choice)
+            use_refresh = refresh_data and not bars_cache
+            bars_cache[interval_choice] = _load_or_build_bars(cfg, interval_choice, use_refresh)
+        return bars_cache[interval_choice]
+
+    # Ensure at least the primary interval is ready and metadata fetched once.
+    _get_bars(interval_candidates[0])
     typer.echo("↻ Fetching pool metadata …")
     pool_info = PoolInfoLoader(config).fetch()
     typer.echo(f"✔ Pool TVL: ${pool_info.total_value_locked_usd:,.0f}")
 
-    typer.echo(f"↻ Launching Bayesian optimization targeting '{metric}' ({trials} trials)")
+    typer.echo(
+        f"↻ Launching Bayesian optimization targeting '{metric}' ({trials} trials) across intervals {interval_candidates}"
+    )
     sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.create_study(direction="maximize", sampler=sampler)
 
     def objective(trial: optuna.Trial) -> float:
-        tight = trial.suggest_float("tight_width", 0.0005, 0.02)
-        base_low = tight + 0.0005
-        base = trial.suggest_float("base_width", base_low, 0.05)
-        wide_low = base + 0.0005
-        wide = trial.suggest_float("wide_width", wide_low, 0.08)
-        fee_threshold = trial.suggest_float("fee_threshold_multiple", 1.05, 2.0)
-        trial_config = config.model_copy(
+        interval_choice = trial.suggest_categorical("rebalance_interval_minutes", interval_candidates)
+        bars = _get_bars(interval_choice)
+        tight = trial.suggest_float("tight_width", 0.0002, 0.03)
+        base_low = tight + 0.0002
+        base = trial.suggest_float("base_width", base_low, 0.08)
+        wide_low = base + 0.0002
+        wide = trial.suggest_float("wide_width", wide_low, 0.15)
+        initial_width = trial.suggest_float("initial_width", max(tight, 0.0005), min(0.2, wide * 1.5))
+        fee_threshold = trial.suggest_float("fee_threshold_multiple", 1.0, 2.5)
+        gas_cost = trial.suggest_float("gas_cost_usd", 0.0, 0.1)
+        trial_config = _get_config(interval_choice).model_copy(
             update={
                 "tight_width": tight,
                 "base_width": base,
                 "wide_width": wide,
+                "initial_width": initial_width,
                 "fee_threshold_multiple": fee_threshold,
+                "gas_cost_usd": gas_cost,
             }
         )
         simulator = Simulator(trial_config, pool_tvl_usd=pool_info.total_value_locked_usd)
         result = simulator.run(bars)
-        metrics = _compute_metrics(result, interval)
+        metrics = _compute_metrics(result, interval_choice)
         trial.set_user_attr("metrics", metrics)
-        return metrics[metric]
+        raw_value = metrics.get(metric)
+        if raw_value is None:
+            raise ValueError(f"Unknown metric '{metric}'")
+        scored_value = _score_metric(metric, raw_value, target_daily_return_min, target_daily_return_max)
+        return scored_value
 
     study.optimize(objective, n_trials=trials)
     best_trial = study.best_trial
     best_metrics = best_trial.user_attrs.get("metrics", {})
+    raw_metric_value = best_metrics.get(metric, best_trial.value)
 
-    typer.echo(f"✔ Best trial #{best_trial.number} → {metric}={best_trial.value:.4f}")
-    typer.echo(f"   tight={best_trial.params['tight_width']:.4%}, base={best_trial.params['base_width']:.4%}, "
-               f"wide={best_trial.params['wide_width']:.4%}, fee_threshold={best_trial.params['fee_threshold_multiple']:.2f}")
+    typer.echo(
+        f"✔ Best trial #{best_trial.number} → raw {metric}={raw_metric_value:.4f} (objective {best_trial.value:.4f})"
+    )
+    typer.echo(
+        "   interval={}m, tight={}, base={}, wide={}, initial={}, fee_threshold={}, gas_cost=${:.3f}".format(
+            best_trial.params.get("rebalance_interval_minutes"),
+            f"{best_trial.params['tight_width']:.4%}",
+            f"{best_trial.params['base_width']:.4%}",
+            f"{best_trial.params['wide_width']:.4%}",
+            f"{best_trial.params['initial_width']:.4%}",
+            f"{best_trial.params['fee_threshold_multiple']:.2f}",
+            best_trial.params['gas_cost_usd'],
+        )
+    )
 
     best_payload = {
         "objective_metric": metric,
         "best_value": best_trial.value,
+        "raw_metric_value": raw_metric_value,
         "params": best_trial.params,
         "metrics": best_metrics,
     }

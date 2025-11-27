@@ -106,10 +106,10 @@ class Simulator:
         returns = np.diff(np.log(price_series))
 
         initial_price = bars[0].close
-        initial_width = 0.01
+        initial_width = self._config.initial_width
         state = PositionState.initialize(
             price=initial_price,
-            notional_usd=350.0,
+            notional_usd=self._config.starting_notional_usd,
             lower=initial_price * (1 - initial_width),
             upper=initial_price * (1 + initial_width),
         )
